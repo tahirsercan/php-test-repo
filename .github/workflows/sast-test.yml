@@ -11,8 +11,8 @@ jobs:
     name: Run Combined SAST Scan
     runs-on: ubuntu-latest
     permissions:
-      security-events: write # Required for GitHub Code Scanning
-      contents: read       # Required for checking out code
+      security-events: write
+      contents: read
     steps:
     - name: Check out code
       uses: actions/checkout@v4
@@ -24,10 +24,9 @@ jobs:
       run: |
         curl -fsSL https://raw.githubusercontent.com/ZupIT/horusec/main/deployments/scripts/install.sh | bash -s latest
 
-    - name: Run Horusec Scan (Generate JSON & SARIF for Secrets/Config)
-      # Using 'continue-on-error: true' here ensures the workflow doesn't stop
-      # if Horusec itself has an issue generating reports, allowing other steps to run.
-      # '--return-error=false' in horusec command also helps with this.
+    - name: Run Horusec Scan (Generate JSON & SARIF)
+      id: horusec_scan
+      # Using 'continue-on-error: true' for robustness
       continue-on-error: true
       run: |
         echo "Running Horusec scan for JSON output..."
@@ -40,19 +39,21 @@ jobs:
           --disable-docker
 
         echo "Running Horusec scan for SARIF output..."
+        # FIX: Use --sarif-output-file for SARIF output
         horusec start -p="./" \
           --output-format="sarif" \
-          --json-output-file="horusec_report.sarif" \ # This should be --sarif-output-file
+          --sarif-output-file="horusec_report.sarif" \
           --ignore-severity="LOW,MEDIUM" \
           --ignore="**/vendor/**,**/node_modules/**" \
           --return-error=false \
           --disable-docker
-          
-        # Verify if SARIF file was created and is not empty
+
+        # Robust check for SARIF file presence and content
         if [ ! -s horusec_report.sarif ]; then
-          echo "Warning: horusec_report.sarif is empty or not created. This may cause upload issues."
-          # Create a dummy valid SARIF to prevent upload-sarif from failing if the file is truly missing/empty
+          echo "WARNING: horusec_report.sarif is empty or not created correctly. Creating an empty valid SARIF."
           echo '{"$schema":"https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json","version":"2.1.0","runs":[]}' > horusec_report.sarif
+        else
+          echo "horusec_report.sarif generated successfully and contains data."
         fi
 
     # --- Semgrep Scan Steps ---
@@ -61,33 +62,38 @@ jobs:
           python -m pip install semgrep
           semgrep --version
 
-    - name: Run Semgrep Scan (SARIF Output for Code Vulnerabilities)
-      # Using 'continue-on-error: true' here so that if Semgrep can't find rules (exit code 7),
-      # the workflow can still continue to the JSON output and artifact upload steps.
+    - name: Run Semgrep Scan (SARIF Output)
+      id: semgrep_sarif_scan
+      # Continue on error to allow JSON generation and artifact upload
       continue-on-error: true
       run: |
           echo "Running Semgrep scan for SARIF output..."
-          # Use --verbose for debugging if rules aren't found
-          semgrep --config=p/php --config=p/owasp-top10 --sarif --output=semgrep-results.sarif .
+          # Added --verbose for more debugging info if exit code 7 persists
+          semgrep --config=p/php --config=p/owasp-top10 --sarif --output=semgrep-results.sarif --verbose .
           
-          # Verify if SARIF file was created and is not empty
+          # Robust check for SARIF file presence and content
           if [ ! -s semgrep-results.sarif ]; then
-            echo "Warning: semgrep-results.sarif is empty or not created. This may cause upload issues."
+            echo "WARNING: semgrep-results.sarif is empty or not created. Creating an empty valid SARIF."
             echo '{"$schema":"https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json","version":"2.1.0","runs":[]}' > semgrep-results.sarif
+          else
+            echo "semgrep-results.sarif generated successfully and contains data."
           fi
 
-
-    - name: Run Semgrep Scan (JSON Output for Detailed Analysis)
-      # This step should also continue on error to ensure artifacts are uploaded
+    - name: Run Semgrep Scan (JSON Output)
+      id: semgrep_json_scan
+      # Continue on error for robustness
       continue-on-error: true
       run: |
           echo "Running Semgrep scan for JSON output..."
-          semgrep --config=p/php --config=p/owasp-top10 --json --output=semgrep-results.json .
+          # Added --verbose here as well
+          semgrep --config=p/php --config=p/owasp-top10 --json --output=semgrep-results.json --verbose .
           
-          # Verify if JSON file was created and is not empty
+          # Robust check for JSON file presence and content
           if [ ! -s semgrep-results.json ]; then
-            echo "Warning: semgrep-results.json is empty or not created."
-            echo '{}' > semgrep-results.json # Create an empty JSON object
+            echo "WARNING: semgrep-results.json is empty or not created. Creating an empty JSON object."
+            echo '{}' > semgrep-results.json
+          else
+            echo "semgrep-results.json generated successfully and contains data."
           fi
 
     # --- Upload SARIF Results to GitHub Code Scanning ---
@@ -95,8 +101,7 @@ jobs:
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: horusec_report.sarif
-        # This will prevent the step from failing if the SARIF file is empty but valid.
-        # It's less prone to the "1 item required" error if the file itself is truly empty.
+        # This is key for robustness if the file is truly empty of findings or was missing.
         if-no-files-found: ignore
       if: always()
 
