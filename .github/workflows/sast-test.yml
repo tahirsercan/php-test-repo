@@ -2,9 +2,9 @@ name: Combined SAST Pipeline
 
 on:
   push:
-    branches: [ "main", "develop", "next" ]
+    branches: [ "main", "develop", "dev" ]
   pull_request:
-    branches: [ "main", "develop", "next" ]
+    branches: [ "main", "develop", "dev" ]
 
 jobs:
   sast_scan:
