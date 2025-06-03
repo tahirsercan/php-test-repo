@@ -1,4 +1,4 @@
-name: Exakat Security Scan (dev branch)
+name: Exakat Security Scan (dev)
 
 on:
   push:
@@ -28,7 +28,9 @@ jobs:
 
       - name: Run Exakat - generate SARIF and JSON reports
         run: |
-          php exakat.phar project:scan -p ./ --report=sarif,json --output=exakat-output
+          php exakat.phar project -p . --output=exakat-output
+          php exakat.phar report -p . -format sarif -file exakat-output/report.sarif
+          php exakat.phar report -p . -format json -file exakat-output/report.json
 
       - name: Upload SARIF report to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v2
@@ -36,7 +38,7 @@ jobs:
           sarif_file: exakat-output/report.sarif
 
       - name: Upload JSON report as artifact
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v2
         with:
           name: exakat-json-report
           path: exakat-output/report.json
